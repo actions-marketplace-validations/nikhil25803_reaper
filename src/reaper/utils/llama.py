@@ -66,7 +66,8 @@ class LlamaClient:
         """Classify one bounded batch and validate complete structured output."""
         if not candidates:
             return []
-        schema = _response_schema(len(candidates))
+        candidate_ids = [item["node_id"] for item in candidates]
+        schema = _response_schema(candidate_ids)
         response = self._request_json(
             "/v1/chat/completions",
             {
@@ -123,12 +124,12 @@ class LlamaClient:
             raise LlamaError("llama-server returned invalid JSON") from error
 
 
-def _response_schema(candidate_count: int) -> dict:
+def _response_schema(candidate_ids: list[str]) -> dict:
     finding = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "node_id": {"type": "string"},
+            "node_id": {"type": "string", "enum": sorted(candidate_ids)},
             "verdict": {"type": "string", "enum": sorted(VERDICTS)},
             "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
             "removal_risk": {"type": "string", "enum": sorted(REMOVAL_RISKS)},
@@ -154,8 +155,8 @@ def _response_schema(candidate_count: int) -> dict:
         "properties": {
             "findings": {
                 "type": "array",
-                "minItems": candidate_count,
-                "maxItems": candidate_count,
+                "minItems": len(candidate_ids),
+                "maxItems": len(candidate_ids),
                 "items": finding,
             }
         },

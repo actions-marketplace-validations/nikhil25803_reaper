@@ -1,0 +1,100 @@
+name: System Prompt
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate prompt (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install Reaper and Graphify
+        run: |
+          uv sync --locked
+          uv pip install graphifyy==0.9.95
+
+      - name: Prepare test server
+        shell: bash
+        run: |
+          chmod +x tests/fake_llama_server.py
+          mkdir -p "$RUNNER_TEMP/reaper-bin"
+          ln -s "$GITHUB_WORKSPACE/tests/fake_llama_server.py" \
+            "$RUNNER_TEMP/reaper-bin/llama-server"
+          : > "$RUNNER_TEMP/model.gguf"
+          echo "$RUNNER_TEMP/reaper-bin" >> "$GITHUB_PATH"
+
+      - name: Run Marketplace action
+        id: reaper
+        uses: ./
+        with:
+          project-path: tests/fixtures/prompt_project
+          model-path: ${{ runner.temp }}/model.gguf
+          model-url: https://invalid.example/model.gguf
+          runtime: local
+          artifact-name: marketplace-action-test
+
+      - name: Validate Marketplace outputs
+        shell: bash
+        env:
+          OUTPUT_DIRECTORY: ${{ steps.reaper.outputs.output-directory }}
+          JSON_REPORT: ${{ steps.reaper.outputs.json-report }}
+          MARKDOWN_REPORT: ${{ steps.reaper.outputs.markdown-report }}
+          REFACTORING_PROMPT: ${{ steps.reaper.outputs.refactoring-prompt }}
+        run: |
+          test -d "$OUTPUT_DIRECTORY"
+          test -s "$JSON_REPORT"
+          test -s "$MARKDOWN_REPORT"
+          test -s "$REFACTORING_PROMPT"
+          .venv/bin/python tests/validate_prompt_artifacts.py \
+            tests/fixtures/prompt_project
+
+      - name: Run Marketplace action with model URL
+        id: reaper-url
+        uses: ./
+        with:
+          project-path: tests/fixtures/prompt_project
+          model-url: file://${{ runner.temp }}/model.gguf
+          runtime: local
+          upload-artifact: "false"
+
+      - name: Validate model URL output
+        shell: bash
+        env:
+          REFACTORING_PROMPT: ${{ steps.reaper-url.outputs.refactoring-prompt }}
+        run: test -s "$REFACTORING_PROMPT"
+
+      - name: Reject invalid Marketplace runtime
+        id: invalid-runtime
+        continue-on-error: true
+        uses: ./
+        with:
+          runtime: unsupported
+
+      - name: Confirm invalid runtime rejection
+        if: always()
+        shell: bash
+        env:
+          ACTION_OUTCOME: ${{ steps.invalid-runtime.outcome }}
+        run: test "$ACTION_OUTCOME" = failure
+
+      - name: Upload generated prompt
+        uses: actions/upload-artifact@v7
+        with:
+          name: system-prompt-linux
+          path: tests/fixtures/prompt_project/reaper-analysis/refactor-prompt.md
+          if-no-files-found: error
+          retention-days: 7

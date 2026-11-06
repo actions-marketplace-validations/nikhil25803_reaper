@@ -3,7 +3,7 @@ import json
 from rich.text import Text
 from typer.testing import CliRunner
 
-from reaper.cli import app
+from reaper.main import app
 
 runner = CliRunner()
 

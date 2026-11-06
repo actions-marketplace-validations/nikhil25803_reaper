@@ -5,7 +5,7 @@ import sys
 from typer.testing import CliRunner
 
 from reaper import __version__
-from reaper.cli import app
+from reaper.main import app
 
 runner = CliRunner()
 

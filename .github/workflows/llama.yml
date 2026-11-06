@@ -32,9 +32,7 @@ jobs:
         run: |
           uv sync --locked
           uv pip install graphifyy==0.9.95
-
-      - name: Scan repository
-        run: uv run --no-sync reaper --scan .
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Download test model
         run: |
@@ -43,29 +41,14 @@ jobs:
             --output "$RUNNER_TEMP/reaper-models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf" \
             https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
 
-      - name: Start llama.cpp server
-        run: |
-          docker run --detach --rm \
-            --name reaper-llama \
-            --publish 8080:8080 \
-            --volume "$RUNNER_TEMP/reaper-models:/models:ro" \
-            ghcr.io/ggml-org/llama.cpp:server \
-            --model /models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf \
-            --host 0.0.0.0 \
-            --port 8080 \
-            --ctx-size 16384 \
-            --parallel 1
-          for _ in {1..60}; do
-            if curl --fail --silent http://127.0.0.1:8080/health; then
-              exit 0
-            fi
-            sleep 2
-          done
-          docker logs reaper-llama
-          exit 1
+      - name: Pull llama.cpp server image
+        run: docker pull ghcr.io/ggml-org/llama.cpp:server
 
-      - name: Analyze ranked callables
-        run: uv run --no-sync reaper analyze . --all
+      - name: Run evidence workflow
+        run: |
+          scripts/reaper-workflow.sh \
+            --runtime docker \
+            --model "$RUNNER_TEMP/reaper-models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf"
 
       - name: Validate reports
         run: |
@@ -78,6 +61,7 @@ jobs:
           graph_path = Path("reaper-analysis/graphify-out/graph.json")
           report_path = Path("reaper-analysis/reaper-report.json")
           markdown_path = Path("reaper-analysis/reaper-report.md")
+          prompt_path = Path("reaper-analysis/refactor-prompt.md")
           report = json.loads(report_path.read_text(encoding="utf-8"))
           nodes, edges = load_graph(graph_path)
           findings = report["findings"]
@@ -92,6 +76,8 @@ jobs:
               for key in ("likely_dead", "needs_review", "likely_used")
           )
           assert markdown_path.read_text(encoding="utf-8").strip()
+          prompt = prompt_path.read_text(encoding="utf-8")
+          assert "# Reaper evidence-based refactoring prompt" in prompt
           PY
 
       - name: Publish report summary
@@ -106,12 +92,10 @@ jobs:
           path: |
             reaper-analysis/reaper-report.json
             reaper-analysis/reaper-report.md
+            reaper-analysis/refactor-prompt.md
+            reaper-analysis/llama-server.log
           retention-days: 7
 
       - name: Show llama.cpp logs on failure
         if: failure()
-        run: docker logs reaper-llama || true
-
-      - name: Stop llama.cpp server
-        if: always()
-        run: docker rm --force reaper-llama || true
+        run: cat reaper-analysis/llama-server.log || true

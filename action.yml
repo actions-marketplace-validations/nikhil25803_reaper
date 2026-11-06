@@ -1,0 +1,181 @@
+name: Reaper Evidence Analysis
+author: Nikhil Raj
+description: Generate evidence-based dead-code reports and a reusable refactoring prompt.
+
+inputs:
+  project-path:
+    description: Repository directory to analyze, relative to the workspace or absolute.
+    required: false
+    default: "."
+  model-url:
+    description: GGUF URL used when model-path is not provided.
+    required: false
+    default: https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf
+  model-path:
+    description: Existing GGUF path; takes precedence over model-url.
+    required: false
+    default: ""
+  runtime:
+    description: llama.cpp runtime; docker is the Marketplace default.
+    required: false
+    default: docker
+  artifact-name:
+    description: Name of the uploaded report artifact.
+    required: false
+    default: reaper-analysis
+  upload-artifact:
+    description: Upload reports and the generated prompt.
+    required: false
+    default: "true"
+
+outputs:
+  output-directory:
+    description: Absolute path to the generated reaper-analysis directory.
+    value: ${{ steps.analyze.outputs.output-directory }}
+  json-report:
+    description: Absolute path to the machine-readable report.
+    value: ${{ steps.analyze.outputs.json-report }}
+  markdown-report:
+    description: Absolute path to the human-readable report.
+    value: ${{ steps.analyze.outputs.markdown-report }}
+  refactoring-prompt:
+    description: Absolute path to the generated refactoring prompt.
+    value: ${{ steps.analyze.outputs.refactoring-prompt }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        REAPER_RUNTIME: ${{ inputs.runtime }}
+        REAPER_UPLOAD_ARTIFACT: ${{ inputs.upload-artifact }}
+      run: |
+        [[ "$RUNNER_OS" == "Linux" ]] || {
+          echo "Reaper's Marketplace action requires a Linux runner." >&2
+          exit 1
+        }
+        [[ "$REAPER_RUNTIME" == "docker" || "$REAPER_RUNTIME" == "local" ]] || {
+          echo "runtime must be docker or local" >&2
+          exit 1
+        }
+        [[ "$REAPER_UPLOAD_ARTIFACT" == "true" || "$REAPER_UPLOAD_ARTIFACT" == "false" ]] || {
+          echo "upload-artifact must be true or false" >&2
+          exit 1
+        }
+
+    - name: Install uv and Python
+      uses: astral-sh/setup-uv@v9.0.0
+      with:
+        python-version: "3.11"
+        enable-cache: true
+
+    - name: Install Reaper and Graphify
+      shell: bash
+      run: |
+        uv tool install "$GITHUB_ACTION_PATH" --force
+        uv tool install graphifyy==0.9.95 --force
+        uv tool dir --bin >> "$GITHUB_PATH"
+
+    - name: Resolve project and model
+      id: prepare
+      shell: bash
+      env:
+        REAPER_PROJECT_PATH: ${{ inputs.project-path }}
+        REAPER_MODEL_PATH: ${{ inputs.model-path }}
+        REAPER_MODEL_URL: ${{ inputs.model-url }}
+      run: |
+        if [[ "$REAPER_PROJECT_PATH" = /* ]]; then
+          project="$REAPER_PROJECT_PATH"
+        else
+          project="$GITHUB_WORKSPACE/$REAPER_PROJECT_PATH"
+        fi
+        [[ -d "$project" ]] || {
+          echo "project-path is not a directory: $project" >&2
+          exit 1
+        }
+        project="$(cd "$project" && pwd -P)"
+
+        if [[ -n "$REAPER_MODEL_PATH" ]]; then
+          if [[ "$REAPER_MODEL_PATH" = /* ]]; then
+            model="$REAPER_MODEL_PATH"
+          else
+            model="$GITHUB_WORKSPACE/$REAPER_MODEL_PATH"
+          fi
+          [[ -r "$model" && -f "$model" ]] || {
+            echo "model-path is not a readable file: $model" >&2
+            exit 1
+          }
+          model="$(cd "$(dirname "$model")" && pwd -P)/$(basename "$model")"
+        else
+          [[ -n "$REAPER_MODEL_URL" ]] || {
+            echo "model-url is required when model-path is empty" >&2
+            exit 1
+          }
+          model_dir="$RUNNER_TEMP/reaper-models"
+          model="$model_dir/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf"
+          mkdir -p "$model_dir"
+          if [[ ! -s "$model" ]]; then
+            curl --fail --location --retry 3 --output "$model" "$REAPER_MODEL_URL"
+          fi
+        fi
+
+        echo "project=$project" >> "$GITHUB_OUTPUT"
+        echo "model=$model" >> "$GITHUB_OUTPUT"
+
+    - name: Prepare llama.cpp runtime
+      shell: bash
+      env:
+        REAPER_RUNTIME: ${{ inputs.runtime }}
+      run: |
+        if [[ "$REAPER_RUNTIME" == "docker" ]]; then
+          command -v docker >/dev/null 2>&1 || {
+            echo "docker is not installed on this runner" >&2
+            exit 1
+          }
+          docker info >/dev/null 2>&1 || {
+            echo "docker daemon is not available" >&2
+            exit 1
+          }
+          docker pull ghcr.io/ggml-org/llama.cpp:server
+        else
+          command -v llama-server >/dev/null 2>&1 || {
+            echo "local runtime requires llama-server on PATH" >&2
+            exit 1
+          }
+        fi
+
+    - name: Analyze repository
+      id: analyze
+      shell: bash
+      env:
+        REAPER_PROJECT: ${{ steps.prepare.outputs.project }}
+        REAPER_MODEL: ${{ steps.prepare.outputs.model }}
+        REAPER_RUNTIME: ${{ inputs.runtime }}
+      run: |
+        cd "$REAPER_PROJECT"
+        "$GITHUB_ACTION_PATH/scripts/reaper-workflow.sh" \
+          --runtime "$REAPER_RUNTIME" \
+          --model "$REAPER_MODEL"
+        output="$REAPER_PROJECT/reaper-analysis"
+        echo "output-directory=$output" >> "$GITHUB_OUTPUT"
+        echo "json-report=$output/reaper-report.json" >> "$GITHUB_OUTPUT"
+        echo "markdown-report=$output/reaper-report.md" >> "$GITHUB_OUTPUT"
+        echo "refactoring-prompt=$output/refactor-prompt.md" >> "$GITHUB_OUTPUT"
+
+    - name: Upload Reaper reports
+      if: inputs.upload-artifact == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ steps.analyze.outputs.json-report }}
+          ${{ steps.analyze.outputs.markdown-report }}
+          ${{ steps.analyze.outputs.refactoring-prompt }}
+          ${{ steps.analyze.outputs.output-directory }}/llama-server.log
+        if-no-files-found: error
+        retention-days: 7
+
+branding:
+  icon: search
+  color: red
