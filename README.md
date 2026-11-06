@@ -21,11 +21,18 @@ Reaper builds a language-agnostic code graph with Graphify, ranks suspicious cal
 2. **Review** — Explore candidates manually or classify them with a local llama.cpp model.
 3. **Refactor safely** — Generate a model-neutral prompt containing only evidence-backed, actionable findings.
 
-## GitHub Action
+## GitHub Actions — Recommended
 
-The Marketplace action runs the complete workflow on an Ubuntu runner and uploads the JSON report, Markdown report, refactoring prompt, and llama.cpp log. Its default model is the official Qwen 2.5 Coder 0.5B Q4_K_M GGUF, which is approximately 491 MB.
+The GitHub Action is the easiest way to run Reaper: it installs Reaper and Graphify, downloads the default model, performs the analysis on an Ubuntu runner, and uploads the results. You do not need to install Python, Graphify, llama.cpp, or a model on your computer.
 
-Copy [the complete example workflow](examples/reaper-analysis.yml) into `.github/workflows/reaper-analysis.yml`, or create this file directly:
+Set up pull-request analysis in four steps:
+
+1. Copy [the example workflow](examples/reaper-analysis.yml) to `.github/workflows/reaper-analysis.yml` in your repository.
+2. In **Settings → Issues → Labels**, create a label named `reaper-analysis`.
+3. Add that label to a pull request. You can also start a run manually from **Actions → Reaper Analysis → Run workflow**.
+4. Open the completed workflow run and download the `reaper-analysis` artifact.
+
+The complete default workflow is:
 
 ```yaml
 name: Reaper Analysis
@@ -45,14 +52,42 @@ jobs:
       github.event.label.name == 'reaper-analysis'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
     steps:
-      - uses: actions/checkout@v7
-      - uses: nikhil25803/reaper@v0
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Generate Reaper evidence and prompt
+        uses: nikhil25803/reaper@v0
 ```
 
-Run it from the Actions tab or add the `reaper-analysis` label to a pull request. When it finishes, download the `reaper-analysis` artifact from the workflow run. Reaper reads the checked-out code and writes only ignored files under `reaper-analysis/`; it never changes project source.
+For a pull request, `actions/checkout` checks out the pull-request code and Reaper analyzes that snapshot. Reaper writes only generated files under `reaper-analysis/`; it never changes or removes project source.
+
+The downloaded artifact contains:
+
+| File                                  | Contents                                      |
+| ------------------------------------- | --------------------------------------------- |
+| `reaper-report.json`                  | Machine-readable findings and evidence.       |
+| `reaper-report.md`                    | Human-readable analysis report.               |
+| `refactor-prompt.md`                  | Prompt for a human or another AI model.        |
+| `llama-server.log`                    | llama.cpp server output for troubleshooting.  |
 
 The `v0` reference is updated only after a successful semantic release. The first Marketplace release containing `action.yml` must be published before this reference is available.
+
+### Trigger analysis from an issue
+
+GitHub uses the same labels for issues and pull requests. To let the `reaper-analysis` label trigger a run from either one, add the `issues` event to the default workflow:
+
+```yaml
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+  issues:
+    types: [labeled]
+```
+
+No other workflow changes are required: the existing job condition accepts the same label from both events. An issue does not identify a branch or commit, so an issue-triggered run analyzes the repository's default branch. The workflow file must already exist on that default branch. Results remain available from the run in the **Actions** tab; the workflow does not comment on the issue and needs no write permissions.
 
 ### Action inputs
 
@@ -65,7 +100,7 @@ The `v0` reference is updated only after a successful semantic release. The firs
 | `artifact-name`   | `reaper-analysis` | Uploaded artifact name.                                    |
 | `upload-artifact` | `true`            | Set to `false` when another step manages artifacts.        |
 
-The action exposes `output-directory`, `json-report`, `markdown-report`, and `refactoring-prompt` outputs. For example, analyze a subdirectory with a custom model:
+The action exposes `output-directory`, `json-report`, `markdown-report`, and `refactoring-prompt` outputs. For example, analyze a subdirectory with a custom model and artifact name:
 
 ```yaml
 - id: reaper
@@ -75,25 +110,32 @@ The action exposes `output-directory`, `json-report`, `markdown-report`, and `re
     model-url: https://example.com/custom-model.gguf
     artifact-name: api-reaper-analysis
 
-- run: echo "Prompt: ${{ steps.reaper.outputs.refactoring-prompt }}"
+- run: 'echo "Prompt: ${{ steps.reaper.outputs.refactoring-prompt }}"'
 ```
 
-The Marketplace action requires Linux and Docker. It downloads the model only when `model-path` is empty, analyzes every ranked candidate, and uses CPU inference by default, so large repositories can take several minutes.
+Other common adjustments are:
+
+- **Use an existing model:** set `model-path`; it takes precedence over `model-url`.
+- **Use a local llama.cpp server:** set `runtime: local` on a Linux runner where `llama-server` is already on `PATH`.
+- **Manage artifacts yourself:** set `upload-artifact: "false"`, then use the action outputs in later steps.
+- **Analyze another branch manually:** choose the branch in GitHub's **Run workflow** dialog. No workflow change is needed.
+
+The Marketplace action requires Linux. Its default Docker runtime uses CPU inference and downloads the model on each run unless `model-path` is set, so large repositories can take several minutes.
 
 ## Prerequisites
 
-| Workflow                | Requirements                                                              |
-| ----------------------- | ------------------------------------------------------------------------- |
-| GitHub Action           | GitHub-hosted `ubuntu-latest` runner with Docker                           |
-| Docker scan             | Docker                                                                    |
-| Local CLI               | Python 3.11+, [uv](https://docs.astral.sh/uv/), Graphify                  |
-| Model-assisted analysis | Local CLI requirements, a GGUF model, and either `llama-server` or Docker |
-| Bash automation         | `reaper`, Graphify, and `curl` on `PATH`; Bash; free port `8080`          |
-| PowerShell automation   | `reaper` and Graphify on `PATH`; PowerShell; free port `8080`             |
+| Method                  | You provide                                                                    | Reaper handles                                                    |
+| ----------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| GitHub Action           | GitHub Actions enabled                                                         | Installs tools, downloads the default model, and uploads reports. |
+| Docker image            | Docker                                                                         | Bundles the Reaper CLI and Graphify.                              |
+| Local source with `uv`  | Python 3.11+, [uv](https://docs.astral.sh/uv/), and Graphify                   | Runs the CLI from the checkout.                                   |
+| Commands on `PATH`      | Python 3.11+ and `uv`; you install Reaper and Graphify                         | Makes commands available outside the checkout.                    |
+| Bash automation         | Bash, `curl`, Reaper, Graphify, a GGUF model, and free port `8080`             | Starts and stops the supplied local or Docker llama.cpp runtime.  |
+| PowerShell automation   | PowerShell, Reaper, Graphify, a GGUF model, and free port `8080`               | Starts and stops the supplied local or Docker llama.cpp runtime.  |
 
-The local CLI and standalone scripts do not download models or install llama.cpp for you. The Marketplace action does. The [official llama.cpp installation guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md) covers packages for Linux, macOS, and Windows.
+For model-assisted local workflows, also provide either `llama-server` on `PATH` or a working Docker daemon. Local commands and scripts do not download a model or install llama.cpp. The Marketplace action does. See the [official llama.cpp installation guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md) for Linux, macOS, and Windows packages.
 
-## Installation
+## Other ways to run Reaper
 
 ### Option 1: Docker image
 
