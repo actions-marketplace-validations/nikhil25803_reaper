@@ -106,3 +106,24 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
+
+  publish-action-tag:
+    name: Update Marketplace major tag
+    needs: publish-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Update floating major tag
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+$ ]]
+          alias="v${BASH_REMATCH[1]}"
+          git tag --force "$alias" "$GITHUB_SHA"
+          git push origin "refs/tags/$alias" --force

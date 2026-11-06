@@ -19,12 +19,15 @@ jobs:
           - name: Linux
             os: ubuntu-latest
             shell: bash
+            mode: action
           - name: macOS
             os: macos-latest
             shell: bash
+            mode: bash
           - name: Windows
             os: windows-latest
             shell: pwsh
+            mode: powershell
 
     steps:
       - name: Check out repository
@@ -66,7 +69,7 @@ jobs:
           $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Run Bash workflow
-        if: matrix.shell == 'bash'
+        if: matrix.mode == 'bash'
         shell: bash
         working-directory: tests/fixtures/prompt_project
         run: |
@@ -76,8 +79,80 @@ jobs:
             --model "$RUNNER_TEMP/model.gguf"
           python "$GITHUB_WORKSPACE/tests/validate_prompt_artifacts.py" .
 
+      - name: Run Marketplace action
+        if: matrix.mode == 'action'
+        id: reaper
+        uses: ./
+        with:
+          project-path: tests/fixtures/prompt_project
+          model-path: ${{ runner.temp }}/model.gguf
+          model-url: https://invalid.example/model.gguf
+          runtime: local
+          artifact-name: marketplace-action-test
+
+      - name: Validate Marketplace outputs
+        if: matrix.mode == 'action'
+        shell: bash
+        env:
+          OUTPUT_DIRECTORY: ${{ steps.reaper.outputs.output-directory }}
+          JSON_REPORT: ${{ steps.reaper.outputs.json-report }}
+          MARKDOWN_REPORT: ${{ steps.reaper.outputs.markdown-report }}
+          REFACTORING_PROMPT: ${{ steps.reaper.outputs.refactoring-prompt }}
+        run: |
+          test -d "$OUTPUT_DIRECTORY"
+          test -s "$JSON_REPORT"
+          test -s "$MARKDOWN_REPORT"
+          test -s "$REFACTORING_PROMPT"
+          .venv/bin/python tests/validate_prompt_artifacts.py \
+            tests/fixtures/prompt_project
+
+      - name: Run Marketplace action with model URL
+        if: matrix.mode == 'action'
+        id: reaper-url
+        uses: ./
+        with:
+          project-path: tests/fixtures/prompt_project
+          model-url: file://${{ runner.temp }}/model.gguf
+          runtime: local
+          upload-artifact: "false"
+
+      - name: Validate model URL output
+        if: matrix.mode == 'action'
+        shell: bash
+        env:
+          REFACTORING_PROMPT: ${{ steps.reaper-url.outputs.refactoring-prompt }}
+        run: test -s "$REFACTORING_PROMPT"
+
+      - name: Reject invalid Marketplace runtime
+        if: matrix.mode == 'action'
+        id: invalid-runtime
+        continue-on-error: true
+        uses: ./
+        with:
+          runtime: unsupported
+
+      - name: Confirm invalid runtime rejection
+        if: always() && matrix.mode == 'action'
+        shell: bash
+        env:
+          ACTION_OUTCOME: ${{ steps.invalid-runtime.outcome }}
+        run: test "$ACTION_OUTCOME" = failure
+
+      - name: Reject Marketplace action on macOS
+        if: matrix.name == 'macOS'
+        id: unsupported-os
+        continue-on-error: true
+        uses: ./
+
+      - name: Confirm macOS rejection
+        if: always() && matrix.name == 'macOS'
+        shell: bash
+        env:
+          ACTION_OUTCOME: ${{ steps.unsupported-os.outcome }}
+        run: test "$ACTION_OUTCOME" = failure
+
       - name: Run PowerShell workflow
-        if: matrix.shell == 'pwsh'
+        if: matrix.mode == 'powershell'
         shell: pwsh
         working-directory: tests/fixtures/prompt_project
         run: |

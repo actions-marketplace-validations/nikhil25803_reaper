@@ -45,6 +45,7 @@ bash -n scripts/reaper-workflow.sh
 ```
 
 PowerShell workflow changes are exercised by the Windows `System Prompt` GitHub Actions job.
+Run `actionlint` when changing GitHub workflows or the Marketplace action integration.
 
 ## Report an issue
 

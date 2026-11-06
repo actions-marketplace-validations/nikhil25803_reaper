@@ -193,13 +193,18 @@ def test_llama_client_uses_health_models_and_structured_schema(monkeypatch) -> N
     client = LlamaClient("http://localhost:8080/", 12)
     client.check_health()
     model = client.select_model()
-    findings = client.analyze_batch(model, [{"node_id": "candidate"}])
+    findings = client.analyze_batch(
+        model,
+        [{"node_id": "candidate"}, {"node_id": "beta"}],
+    )
 
     assert model == "code-model"
-    assert findings[0]["node_id"] == "candidate"
+    assert {item["node_id"] for item in findings} == {"candidate", "beta"}
     assert requests[0]["temperature"] == 0
     assert "response_format" not in requests[0]
     assert requests[0]["json_schema"]["additionalProperties"] is False
+    finding_schema = requests[0]["json_schema"]["properties"]["findings"]["items"]
+    assert finding_schema["properties"]["node_id"]["enum"] == ["beta", "candidate"]
 
 
 def test_llama_client_rejects_missing_findings_and_transport_errors(

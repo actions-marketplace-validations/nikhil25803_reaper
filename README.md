@@ -1,6 +1,6 @@
 # Reaper
 
-*Evidence-based dead-code analysis for any programming language.*
+_Evidence-based dead-code analysis for any programming language._
 
 [![CI](https://github.com/nikhil25803/reaper/actions/workflows/ci.yml/badge.svg)](https://github.com/nikhil25803/reaper/actions/workflows/ci.yml)
 [![Test](https://github.com/nikhil25803/reaper/actions/workflows/test.yml/badge.svg)](https://github.com/nikhil25803/reaper/actions/workflows/test.yml)
@@ -21,17 +21,77 @@ Reaper builds a language-agnostic code graph with Graphify, ranks suspicious cal
 2. **Review** — Explore candidates manually or classify them with a local llama.cpp model.
 3. **Refactor safely** — Generate a model-neutral prompt containing only evidence-backed, actionable findings.
 
+## GitHub Action
+
+The Marketplace action runs the complete workflow on an Ubuntu runner and uploads the JSON report, Markdown report, refactoring prompt, and llama.cpp log. Its default model is the official Qwen 2.5 Coder 0.5B Q4_K_M GGUF, which is approximately 491 MB.
+
+Copy [the complete example workflow](examples/reaper-analysis.yml) into `.github/workflows/reaper-analysis.yml`, or create this file directly:
+
+```yaml
+name: Reaper Analysis
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'reaper-analysis'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: nikhil25803/reaper@v0
+```
+
+Run it from the Actions tab or add the `reaper-analysis` label to a pull request. When it finishes, download the `reaper-analysis` artifact from the workflow run. Reaper reads the checked-out code and writes only ignored files under `reaper-analysis/`; it never changes project source.
+
+The `v0` reference is updated only after a successful semantic release. The first Marketplace release containing `action.yml` must be published before this reference is available.
+
+### Action inputs
+
+| Input             | Default           | Purpose                                                    |
+| ----------------- | ----------------- | ---------------------------------------------------------- |
+| `project-path`    | `.`               | Repository directory to analyze.                           |
+| `model-url`       | Qwen 0.5B Q4_K_M  | GGUF download URL used when no model path is provided.     |
+| `model-path`      | Empty             | Existing GGUF file; takes precedence over `model-url`.     |
+| `runtime`         | `docker`          | Use `docker` or an already installed local `llama-server`. |
+| `artifact-name`   | `reaper-analysis` | Uploaded artifact name.                                    |
+| `upload-artifact` | `true`            | Set to `false` when another step manages artifacts.        |
+
+The action exposes `output-directory`, `json-report`, `markdown-report`, and `refactoring-prompt` outputs. For example, analyze a subdirectory with a custom model:
+
+```yaml
+- id: reaper
+  uses: nikhil25803/reaper@v0
+  with:
+    project-path: services/api
+    model-url: https://example.com/custom-model.gguf
+    artifact-name: api-reaper-analysis
+
+- run: echo "Prompt: ${{ steps.reaper.outputs.refactoring-prompt }}"
+```
+
+The Marketplace action requires Linux and Docker. It downloads the model only when `model-path` is empty, analyzes every ranked candidate, and uses CPU inference by default, so large repositories can take several minutes.
+
 ## Prerequisites
 
-| Workflow | Requirements |
-| --- | --- |
-| Docker scan | Docker |
-| Local CLI | Python 3.11+, [uv](https://docs.astral.sh/uv/), Graphify |
+| Workflow                | Requirements                                                              |
+| ----------------------- | ------------------------------------------------------------------------- |
+| GitHub Action           | GitHub-hosted `ubuntu-latest` runner with Docker                           |
+| Docker scan             | Docker                                                                    |
+| Local CLI               | Python 3.11+, [uv](https://docs.astral.sh/uv/), Graphify                  |
 | Model-assisted analysis | Local CLI requirements, a GGUF model, and either `llama-server` or Docker |
-| Bash automation | `reaper`, Graphify, and `curl` on `PATH`; Bash; free port `8080` |
-| PowerShell automation | `reaper` and Graphify on `PATH`; PowerShell; free port `8080` |
+| Bash automation         | `reaper`, Graphify, and `curl` on `PATH`; Bash; free port `8080`          |
+| PowerShell automation   | `reaper` and Graphify on `PATH`; PowerShell; free port `8080`             |
 
-Reaper does not download models or install llama.cpp for you. The [official llama.cpp installation guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md) covers packages for Linux, macOS, and Windows.
+The local CLI and standalone scripts do not download models or install llama.cpp for you. The Marketplace action does. The [official llama.cpp installation guide](https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md) covers packages for Linux, macOS, and Windows.
 
 ## Installation
 
@@ -167,39 +227,39 @@ Candidates are leads, not proof. Public APIs, entry points, decorators, reflecti
 
 ### Main commands
 
-| Command | Purpose |
-| --- | --- |
-| `reaper --help` | Show command help. |
-| `reaper --version` | Show the installed version. |
-| `reaper --check graphify` | Confirm Graphify is installed and print its version. |
-| `reaper --scan PATH` | Generate or refresh a code-only graph. |
-| `reaper graph projects [ROOT]` | Find analyzed projects below a directory. |
-| `reaper graph candidates [PROJECT_PATH]` | Count zero-inbound callable candidates. |
-| `reaper graph candidates [PROJECT_PATH] --list` | Display candidate details. |
-| `reaper graph inspect PROJECT_PATH NODE` | Show one node and its relationships. |
-| `reaper analyze [PROJECT_PATH]` | Review ranked candidates with llama.cpp. |
-| `reaper prompt [PROJECT_PATH]` | Generate a refactoring prompt from an analysis report. |
+| Command                                         | Purpose                                                |
+| ----------------------------------------------- | ------------------------------------------------------ |
+| `reaper --help`                                 | Show command help.                                     |
+| `reaper --version`                              | Show the installed version.                            |
+| `reaper --check graphify`                       | Confirm Graphify is installed and print its version.   |
+| `reaper --scan PATH`                            | Generate or refresh a code-only graph.                 |
+| `reaper graph projects [ROOT]`                  | Find analyzed projects below a directory.              |
+| `reaper graph candidates [PROJECT_PATH]`        | Count zero-inbound callable candidates.                |
+| `reaper graph candidates [PROJECT_PATH] --list` | Display candidate details.                             |
+| `reaper graph inspect PROJECT_PATH NODE`        | Show one node and its relationships.                   |
+| `reaper analyze [PROJECT_PATH]`                 | Review ranked candidates with llama.cpp.               |
+| `reaper prompt [PROJECT_PATH]`                  | Generate a refactoring prompt from an analysis report. |
 
 ### Graph options
 
-| Option | Applies to | Meaning |
-| --- | --- | --- |
-| `--list` | `graph candidates` | Display candidate rows instead of only the count. |
-| `--limit 1..100` | `graph candidates` | Candidates per page; default `10`. |
-| `--page N` | `graph candidates` | One-based page number; default `1`. |
-| `--limit N` | `graph inspect` | Maximum relationships to display; default `50`. |
+| Option           | Applies to         | Meaning                                           |
+| ---------------- | ------------------ | ------------------------------------------------- |
+| `--list`         | `graph candidates` | Display candidate rows instead of only the count. |
+| `--limit 1..100` | `graph candidates` | Candidates per page; default `10`.                |
+| `--page N`       | `graph candidates` | One-based page number; default `1`.               |
+| `--limit N`      | `graph inspect`    | Maximum relationships to display; default `50`.   |
 
 ### Analysis options
 
-| Option | Meaning |
-| --- | --- |
-| `--scan` | Refresh the graph before analysis. |
-| `--server URL` | llama-server base URL; default `http://127.0.0.1:8080`. |
-| `--model ID` | Require a specific loaded model ID. |
-| `--limit N` | Review at most `N` candidates; default `20`. |
-| `--all` | Review the complete ranked candidate pool. |
-| `--low-connectivity N` | Keep nodes with at most `N` total usage connections. |
-| `--timeout SECONDS` | Server request timeout; default `300`. |
+| Option                 | Meaning                                                 |
+| ---------------------- | ------------------------------------------------------- |
+| `--scan`               | Refresh the graph before analysis.                      |
+| `--server URL`         | llama-server base URL; default `http://127.0.0.1:8080`. |
+| `--model ID`           | Require a specific loaded model ID.                     |
+| `--limit N`            | Review at most `N` candidates; default `20`.            |
+| `--all`                | Review the complete ranked candidate pool.              |
+| `--low-connectivity N` | Keep nodes with at most `N` total usage connections.    |
+| `--timeout SECONDS`    | Server request timeout; default `300`.                  |
 
 `--all` and `--limit` cannot be used together. Run any command with `--help` for its complete syntax.
 
@@ -254,13 +314,13 @@ Refactoring prompt: reaper-analysis/refactor-prompt.md
 
 ### Generated files
 
-| File | Contents |
-| --- | --- |
-| `reaper-analysis/graphify-out/graph.json` | Graphify nodes and relationships. |
-| `reaper-analysis/reaper-report.json` | Versioned machine-readable findings. |
-| `reaper-analysis/reaper-report.md` | Human-readable findings and evidence. |
-| `reaper-analysis/refactor-prompt.md` | Model-neutral, evidence-based refactoring instructions. |
-| `reaper-analysis/llama-server.log` | Server output retained by the automation scripts. |
+| File                                      | Contents                                                |
+| ----------------------------------------- | ------------------------------------------------------- |
+| `reaper-analysis/graphify-out/graph.json` | Graphify nodes and relationships.                       |
+| `reaper-analysis/reaper-report.json`      | Versioned machine-readable findings.                    |
+| `reaper-analysis/reaper-report.md`        | Human-readable findings and evidence.                   |
+| `reaper-analysis/refactor-prompt.md`      | Model-neutral, evidence-based refactoring instructions. |
+| `reaper-analysis/llama-server.log`        | Server output retained by the automation scripts.       |
 
 <details>
 <summary>Example: analyze a service monorepo</summary>
