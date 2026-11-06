@@ -28,7 +28,7 @@ def test_version() -> None:
     result = runner.invoke(app, ["--version"])
 
     assert result.exit_code == 0
-    assert result.output.strip() == __version__ == "0.0.1"
+    assert result.output.strip() == __version__ == "0.1.0"
 
 
 def test_no_arguments_displays_help() -> None:
