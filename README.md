@@ -23,8 +23,8 @@ combine Graphify’s structural intelligence with local llama.cpp models for sma
 private dead-code analysis—giving models focused evidence instead of making them
 spend tokens rediscovering the repository.
 
-> **What’s left:** Bash/PowerShell automation and reusable system-prompt
-> generation will complete the end-to-end workflow for other AI models.
+> Reaper includes Bash and PowerShell automation plus reusable prompt generation
+> for passing evidence-backed refactoring work to other AI models.
 
 ## Quick Start
 
@@ -70,6 +70,7 @@ docker run --rm \
 | `--check graphify` | Check whether Graphify is installed.      |
 | `--scan PATH`      | Generate a code-only graph for a project. |
 | `analyze`          | Review graph candidates with llama.cpp.   |
+| `prompt`           | Generate an evidence-based refactoring prompt. |
 | `graph`            | Explore an existing generated graph.      |
 
 ## Graphify
@@ -192,6 +193,57 @@ Successful analysis updates two frontend-ready files:
 The terminal displays likely-dead and needs-review findings. Likely-used results
 remain available in both reports. Model verdicts are review evidence only;
 Reaper never edits or removes code.
+
+## Evidence-based refactoring prompt
+
+After an analysis, generate a model-neutral prompt for another AI model or a
+human reviewer:
+
+```console
+reaper prompt .
+```
+
+The command validates `reaper-analysis/reaper-report.json` and writes
+`reaper-analysis/refactor-prompt.md`. The prompt contains likely-dead and
+needs-review findings, requires each finding to be verified against the current
+repository, and excludes likely-used findings. Reaper generates the prompt but
+does not invoke another model or edit source code.
+
+## Automated local workflow
+
+The included Bash and PowerShell scripts run the complete workflow in the
+current directory: check Graphify, start llama.cpp with a supplied GGUF model,
+scan the project, analyze every ranked candidate, generate the refactoring
+prompt, and stop the server they started.
+
+Both scripts require `reaper` on `PATH` and an unused local port `8080`. Bash
+also requires `curl`. Choose exactly one runtime:
+
+- `local` requires `llama-server` on `PATH`.
+- `docker` requires a running Docker daemon and the official image already
+  available locally:
+
+```console
+docker pull ghcr.io/ggml-org/llama.cpp:server
+```
+
+Run the Bash workflow with a readable model path:
+
+```console
+./scripts/reaper-workflow.sh --runtime local --model /path/to/model.gguf
+```
+
+Use `--runtime docker` with the same command to run llama.cpp in Docker.
+
+Run the equivalent PowerShell workflow:
+
+```powershell
+.\scripts\reaper-workflow.ps1 -Runtime local -Model C:\models\model.gguf
+```
+
+Use `-Runtime docker` for Docker Desktop. Server output is retained under
+`reaper-analysis/` for diagnosis. The scripts do not download models, install
+tools, or modify project source.
 
 ## Monorepo example
 

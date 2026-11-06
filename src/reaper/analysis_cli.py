@@ -12,6 +12,7 @@ from reaper.utils.analysis import (
     build_report,
     candidate_evidence,
     merge_findings,
+    write_refactoring_prompt,
     write_reports,
 )
 from reaper.utils.graph import analysis_candidates
@@ -19,6 +20,28 @@ from reaper.utils.graphify import run_graphify_scan
 from reaper.utils.llama import LlamaClient, LlamaError
 
 BATCH_SIZE = 4
+
+
+def prompt(
+    project: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            file_okay=False,
+            readable=True,
+            resolve_path=True,
+            metavar="PROJECT_PATH",
+            help="Project directory containing a Reaper analysis report.",
+        ),
+    ] = Path("."),
+) -> None:
+    """Generate a model-neutral refactoring prompt from an analysis report."""
+    try:
+        prompt_path = write_refactoring_prompt(project)
+    except (OSError, ValueError) as error:
+        typer.echo(f"Unable to generate refactoring prompt: {error}", err=True)
+        raise typer.Exit(1) from error
+    typer.echo(f"Refactoring prompt: {prompt_path}")
 
 
 def analyze(

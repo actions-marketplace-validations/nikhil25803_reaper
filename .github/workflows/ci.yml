@@ -7,6 +7,47 @@ permissions:
   contents: read
 
 jobs:
+  workflow-scripts:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            shell: bash
+          - os: windows-latest
+            shell: pwsh
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate Bash workflow
+        if: matrix.shell == 'bash'
+        shell: bash
+        run: |
+          bash -n scripts/reaper-workflow.sh
+          scripts/reaper-workflow.sh --help
+          if scripts/reaper-workflow.sh --runtime local; then
+            echo "Expected missing-model validation to fail" >&2
+            exit 1
+          fi
+
+      - name: Validate PowerShell workflow
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File scripts/reaper-workflow.ps1 -Help
+          $process = Start-Process pwsh -Wait -PassThru -ArgumentList @(
+            "-NoProfile",
+            "-File",
+            "scripts/reaper-workflow.ps1",
+            "-Runtime",
+            "local"
+          )
+          if ($process.ExitCode -eq 0) {
+            throw "Expected missing-model validation to fail"
+          }
+
   build:
     runs-on: ubuntu-latest
 
