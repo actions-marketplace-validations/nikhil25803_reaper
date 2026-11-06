@@ -1,0 +1,94 @@
+name: System Prompt
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate prompt (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            shell: bash
+          - name: macOS
+            os: macos-latest
+            shell: bash
+          - name: Windows
+            os: windows-latest
+            shell: pwsh
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install Reaper and Graphify
+        run: |
+          uv sync --locked
+          uv pip install graphifyy==0.9.95
+
+      - name: Prepare Unix test server
+        if: matrix.shell == 'bash'
+        shell: bash
+        run: |
+          chmod +x tests/fake_llama_server.py
+          mkdir -p "$RUNNER_TEMP/reaper-bin"
+          ln -s "$GITHUB_WORKSPACE/tests/fake_llama_server.py" \
+            "$RUNNER_TEMP/reaper-bin/llama-server"
+          : > "$RUNNER_TEMP/model.gguf"
+          echo "$RUNNER_TEMP/reaper-bin" >> "$GITHUB_PATH"
+
+      - name: Prepare Windows test server
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP "reaper-bin"
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          $python = Join-Path $env:GITHUB_WORKSPACE ".venv\Scripts\python.exe"
+          $server = Join-Path $env:GITHUB_WORKSPACE "tests\fake_llama_server.py"
+          $launcher = "@echo off`r`n`"$python`" `"$server`" %*`r`n"
+          Set-Content -Path (Join-Path $bin "llama-server.cmd") -Value $launcher -Encoding ascii
+          New-Item -ItemType File -Force -Path (Join-Path $env:RUNNER_TEMP "model.gguf") | Out-Null
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Run Bash workflow
+        if: matrix.shell == 'bash'
+        shell: bash
+        working-directory: tests/fixtures/prompt_project
+        run: |
+          source "$GITHUB_WORKSPACE/.venv/bin/activate"
+          "$GITHUB_WORKSPACE/scripts/reaper-workflow.sh" \
+            --runtime local \
+            --model "$RUNNER_TEMP/model.gguf"
+          python "$GITHUB_WORKSPACE/tests/validate_prompt_artifacts.py" .
+
+      - name: Run PowerShell workflow
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        working-directory: tests/fixtures/prompt_project
+        run: |
+          . "$env:GITHUB_WORKSPACE\.venv\Scripts\Activate.ps1"
+          & "$env:GITHUB_WORKSPACE\scripts\reaper-workflow.ps1" -Runtime local -Model "$env:RUNNER_TEMP\model.gguf"
+          python "$env:GITHUB_WORKSPACE\tests\validate_prompt_artifacts.py" .
+
+      - name: Upload generated prompt
+        uses: actions/upload-artifact@v7
+        with:
+          name: system-prompt-${{ runner.os }}
+          path: tests/fixtures/prompt_project/reaper-analysis/refactor-prompt.md
+          if-no-files-found: error
+          retention-days: 7

@@ -82,7 +82,12 @@ function Stop-ReaperServer {
         & docker stop $containerId *> $null
     }
     if ($serverProcess -and -not $serverProcess.HasExited) {
-        Stop-Process -Id $serverProcess.Id -ErrorAction SilentlyContinue
+        if ($env:OS -eq "Windows_NT") {
+            & taskkill /PID $serverProcess.Id /T /F *> $null
+        }
+        else {
+            Stop-Process -Id $serverProcess.Id -ErrorAction SilentlyContinue
+        }
         $serverProcess.WaitForExit(5000) | Out-Null
     }
 }
@@ -137,8 +142,9 @@ try {
 
     if ($Runtime -eq "local") {
         $quotedModel = '"' + $modelPath + '"'
+        $llamaCommand = Get-Command "llama-server"
         $startArguments = @{
-            FilePath = (Get-Command "llama-server").Source
+            FilePath = $llamaCommand.Path
             ArgumentList = @(
                 "--model", $quotedModel,
                 "--host", "127.0.0.1",
