@@ -5,7 +5,7 @@ from urllib.error import URLError
 import pytest
 from typer.testing import CliRunner
 
-from reaper.cli import app
+from reaper.main import app
 from reaper.utils.analysis import candidate_evidence
 from reaper.utils.graph import analysis_candidates, candidate_nodes
 from reaper.utils.llama import LlamaClient, LlamaError
