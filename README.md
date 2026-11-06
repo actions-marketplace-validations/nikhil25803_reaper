@@ -469,7 +469,7 @@ uv run ruff format --check .
 uv build
 ```
 
-The `System Prompt` workflow runs the deterministic end-to-end scripts on Linux, macOS, and Windows. The label-gated `Llama` workflow runs the real Qwen integration on Linux when manually dispatched or when a pull request receives the `llama-analysis` label.
+The `System Prompt` workflow runs the deterministic Marketplace Action end to end on Linux. The label-gated `Llama` workflow runs the real Qwen integration on Linux when manually dispatched or when a pull request receives the maintainer-only `llama-analysis` label.
 
 ## Contributing
 
