@@ -2,6 +2,8 @@
 
 _Evidence-based dead-code analysis for any programming language._
 
+> I've also written a short article explaining why I built it and how it works: https://x.com/maybe_nikhil/status/2118922562176774637
+
 [![CI](https://github.com/nikhil25803/reaper/actions/workflows/ci.yml/badge.svg)](https://github.com/nikhil25803/reaper/actions/workflows/ci.yml)
 [![Test](https://github.com/nikhil25803/reaper/actions/workflows/test.yml/badge.svg)](https://github.com/nikhil25803/reaper/actions/workflows/test.yml)
 [![System Prompt](https://github.com/nikhil25803/reaper/actions/workflows/system-prompt.yml/badge.svg)](https://github.com/nikhil25803/reaper/actions/workflows/system-prompt.yml)
